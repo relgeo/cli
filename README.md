@@ -15,8 +15,8 @@ Secara konseptual, CLI ini bekerja pada dokumen gambar vektor deklaratif yang di
 Status packaging saat ini:
 
 * CLI ini adalah command surface utama RelGeo
-* jalur konsumsi yang paling sehat saat ini masih melalui monorepo ini
-* packaging registry atau distribusi terpisah perlu diperlakukan sebagai langkah publish tersendiri
+* package publik tersedia melalui npm sebagai `@relgeo/cli`
+* workspace root tetap dipakai untuk integrasi dan verifikasi lintas-repo
 
 Pakai package ini jika Anda ingin:
 
