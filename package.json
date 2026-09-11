@@ -19,7 +19,11 @@
     "test": "vitest run",
     "start": "node ./bin/relgeo.js"
   },
-  "author": "Agus Made",
+  "author": {
+    "name": "Agus Made",
+    "email": "krisnaparta@gmail.com",
+    "url": "https://github.com/agusmade"
+  },
   "license": "MIT",
   "files": [
     "bin",
