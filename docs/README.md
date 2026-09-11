@@ -1,8 +1,8 @@
-# relgeo-cli Docs
+# @relgeo/cli Docs
 
 Status dokumen: `Active Package Docs`
 
-Dokumen ini adalah rumah awal untuk dokumentasi package `relgeo-cli`.
+Dokumen ini adalah rumah awal untuk dokumentasi package `@relgeo/cli`.
 
 Website docs boleh memberi pengantar atau entry surface, tetapi dokumentasi yang lebih dekat ke perilaku package sebaiknya hidup di sini, berdampingan dengan source package-nya.
 
@@ -10,7 +10,7 @@ Website docs boleh memberi pengantar atau entry surface, tetapi dokumentasi yang
 
 ## 1. Peran Package
 
-`relgeo-cli` adalah surface terminal utama RelGeo.
+`@relgeo/cli` adalah surface terminal utama RelGeo.
 
 Package ini digunakan ketika pengguna ingin:
 
@@ -25,7 +25,7 @@ CLI ini mengikuti kontrak bahasa aktif repo saat ini, yaitu `RelGeo DSL v0.5`.
 
 ## 2. Positioning
 
-Gunakan `relgeo-cli` jika kebutuhan Anda adalah:
+Gunakan `@relgeo/cli` jika kebutuhan Anda adalah:
 
 1. automation
 2. command-line workflow
@@ -34,8 +34,8 @@ Gunakan `relgeo-cli` jika kebutuhan Anda adalah:
 Jika kebutuhan Anda berbeda:
 
 1. gunakan `relgeo-playground` untuk workflow interaktif berbasis browser
-2. gunakan `relgeo-core` untuk integrasi runtime langsung di kode
-3. gunakan `relgeo-renderer-svg` bila Anda sudah punya resolved scene dan hanya ingin output SVG
+2. gunakan `@relgeo/core` untuk integrasi runtime langsung di kode
+3. gunakan `@relgeo/renderer-svg` bila Anda sudah punya resolved scene dan hanya ingin output SVG
 
 ---
 
@@ -120,10 +120,10 @@ pnpm relgeo compile design.yaml -f svg --sheet A4-01 -o output.svg
 
 ## 6. Boundary Penting
 
-`relgeo-cli` bukan:
+`@relgeo/cli` bukan:
 
 1. editor interaktif
-2. pengganti `relgeo-core` untuk integrasi runtime
+2. pengganti `@relgeo/core` untuk integrasi runtime
 3. pengganti documentation normatif language spec
 
 CLI adalah surface operasional untuk terminal.

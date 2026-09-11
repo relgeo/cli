@@ -4,7 +4,7 @@ Command-line interface for the **RelGeo** relation-first geometry runtime. This 
 
 ## Versioning
 
-The CLI package metadata version is currently `0.4.0`, while the active RelGeo DSL contract is `v0.5`. These are separate versioning systems: the CLI package number identifies the package release metadata, and the DSL version identifies the language contract accepted by the toolchain.
+The `@relgeo/cli` package is currently `0.5.0`, on the RelGeo DSL `v0.5` compatibility line. Patch releases may move independently; a breaking language-contract change moves the coordinated package line to `0.6.x`.
 
 For package-owned docs that should grow closer to this package over time, see `docs/README.md`.
 
@@ -26,8 +26,8 @@ Pakai package ini jika Anda ingin:
 
 Jika yang Anda butuhkan berbeda:
 
-* gunakan `relgeo-core` untuk integrasi runtime di kode
-* gunakan `relgeo-renderer-svg` bila Anda sudah punya resolved scene dan hanya ingin output SVG
+* gunakan `@relgeo/core` untuk integrasi runtime di kode
+* gunakan `@relgeo/renderer-svg` bila Anda sudah punya resolved scene dan hanya ingin output SVG
 * gunakan `relgeo-playground` untuk workflow interaktif di browser
 
 ## Installation

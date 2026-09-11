@@ -2,8 +2,8 @@ import { Command } from "commander";
 import chalk from "chalk";
 import fs from "fs-extra";
 import path from "path";
-import { compileRelGeo, getDependencyGraph, parseRelGeo } from "relgeo-core";
-import { renderToSVG } from "relgeo-renderer-svg";
+import { compileRelGeo, getDependencyGraph, parseRelGeo } from "@relgeo/core";
+import { renderToSVG } from "@relgeo/renderer-svg";
 
 const program = new Command();
 
@@ -22,7 +22,7 @@ function parseCliOverride(raw: string): string | number | boolean {
 program
   .name("relgeo")
   .description("RelGeo CLI - Relation-first parametric geometry engine for the active RelGeo DSL v0.5 surface")
-  .version("0.4.0");
+  .version("0.5.0");
 
 program
   .command("info")
@@ -38,7 +38,7 @@ program
 
       const content = await fs.readFile(filePath, "utf-8");
       // Use parseRelGeo in editor mode to get doc even if invalid
-      const { parseRelGeo } = await import("relgeo-core");
+      const { parseRelGeo } = await import("@relgeo/core");
       const doc = parseRelGeo(content, { mode: "editor" });
 
       console.log(chalk.blue(`\n--- File Info: ${path.basename(file)} ---`));

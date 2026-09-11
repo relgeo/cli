@@ -56,11 +56,11 @@ afterEach(async () => {
   await Promise.all(tempDirs.splice(0).map((dir) => fs.remove(dir)));
 });
 
-describe("relgeo-cli smoke surface", () => {
+describe("@relgeo/cli smoke surface", () => {
   it("shows the aligned CLI version banner", async () => {
     const { stdout } = await runCli(["--version"]);
 
-    expect(stdout.trim()).toBe("0.4.0");
+    expect(stdout.trim()).toBe("0.5.0");
   });
 
   it("prints file info for a valid document", async () => {
