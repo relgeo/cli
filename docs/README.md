@@ -85,6 +85,15 @@ pnpm relgeo compile path/to/design.yaml -f svg
 pnpm relgeo compile path/to/design.yaml -f graph
 ```
 
+File-taking commands accept `-` as stdin for pipeline use:
+
+```bash
+cat design.yaml | pnpm relgeo compile - --format json
+```
+
+An explicit path takes precedence over stdin. Empty input and read failures are
+reported as non-zero input errors.
+
 ### `check <file>`
 
 Digunakan untuk memvalidasi dan resolve dokumen tanpa menghasilkan output final.
@@ -108,6 +117,12 @@ Option penting yang saat ini tersedia:
 4. `--profile <name>` untuk memilih profile dokumen
 5. `-p, --param <key=value...>` untuk parameter override
 6. `-s, --sheet <id>` untuk memilih sheet target saat export SVG
+7. `--diagnostics <mode>` untuk memilih `human` atau `json`
+8. `--no-color` untuk mematikan styling terminal
+
+Target unit yang didukung adalah `px`, `mm`, `cm`, `m`, dan `in`. Format,
+profile, unit, parameter, dan selector yang tidak dikenal ditolak sebelum
+pipeline compile berjalan.
 
 Contoh:
 
@@ -115,6 +130,15 @@ Contoh:
 pnpm relgeo compile design.yaml -p width=200mm -p inspectable=true
 pnpm relgeo compile design.yaml -f svg --sheet A4-01 -o output.svg
 ```
+
+Output JSON/SVG/graph tanpa `--output` hanya ditulis ke stdout. Dengan
+`--output`, parent directory dibuat bila perlu dan pesan sukses ditulis ke
+stderr.
+
+Untuk automation, `--diagnostics json` menulis satu envelope JSON stabil ke
+stderr dengan `version`, `source`, `exitCode`, `code`, `phase`, `severity`,
+`message`, `path`, `objectId`, dan `range`. Exit code: `0` sukses, `2` usage,
+`3` input, `4` validation/runtime/render, dan `5` output/write.
 
 ---
 

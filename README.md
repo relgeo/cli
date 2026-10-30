@@ -54,6 +54,16 @@ Compiles a RelGeo YAML file and prints the resolved geometry JSON to stdout.
 pnpm relgeo compile path/to/design.yaml
 ```
 
+Input can also come from stdin for shell pipelines:
+
+```bash
+cat design.yaml | pnpm relgeo compile - -f json
+```
+
+An explicit file path always takes precedence over unrelated stdin. Empty
+stdin, missing files, and malformed input fail non-zero with source-aware
+diagnostics.
+
 ### Compile with Profile
 Select a predefined profile from the YAML file.
 
@@ -106,10 +116,34 @@ pnpm relgeo compile design.yaml -o output.json
 pnpm relgeo compile design.yaml -f svg -o output.svg
 ```
 
+When `--output` is used, generated data is written to the requested file and
+the success message is sent to stderr. Without `--output`, stdout contains
+only the requested JSON, SVG, or graph data.
+
 ### Specify Target Unit
 ```bash
 pnpm relgeo compile design.yaml -u mm
 ```
+
+Supported target units are `px`, `mm`, `cm`, `m`, and `in`.
+
+### Machine-readable diagnostics
+
+Use `--diagnostics json` when a script needs stable error fields instead of
+human-readable prose:
+
+```bash
+pnpm relgeo compile design.yaml --diagnostics json
+```
+
+The JSON envelope is written to stderr and includes `version`, `source`,
+`exitCode`, `code`, `phase`, `severity`, `message`, `path`, `objectId`, and
+`range` fields. Data output remains on stdout. Use `--no-color` (or `NO_COLOR`)
+to suppress terminal styling.
+
+Exit codes are stable by category: `0` success, `2` usage/option errors, `3`
+input errors, `4` validation/runtime/render errors, and `5` output/write
+errors.
 
 ## Commands
 
@@ -137,6 +171,8 @@ Validates and resolves a RelGeo file without emitting JSON/SVG output.
 - `--profile <name>`: Select a profile defined in the YAML.
 - `-p, --param <key=value...>`: Override parameters manually.
 - `-s, --sheet <id>`: Target sheet for SVG rendering.
+- `--diagnostics <mode>`: Diagnostics mode (`human` or `json`).
+- `--no-color`: Disable color and progress styling.
 
 ## Development
 
