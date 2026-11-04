@@ -64,6 +64,9 @@ An explicit file path always takes precedence over unrelated stdin. Empty
 stdin, missing files, and malformed input fail non-zero with source-aware
 diagnostics.
 
+Input may be omitted when `.relgeo.json` supplies `input`. File and stdin input
+are decoded as strict UTF-8; invalid encoding is an input failure.
+
 ### Compile with Profile
 Select a predefined profile from the YAML file.
 
@@ -93,11 +96,33 @@ Emits the dependency graph instead of resolved scene geometry.
 pnpm relgeo compile design.yaml -f graph
 ```
 
+### Initialize or Open a Document
+
+Create a starter document, refusing accidental replacement by default:
+
+```bash
+pnpm relgeo init design.yaml
+pnpm relgeo init design.yaml --force
+```
+
+Inspect an existing document through the explicit open workflow:
+
+```bash
+pnpm relgeo open design.yaml
+```
+
 ### Compile a Specific Sheet to SVG
 Select a sheet when the document defines `sheets:`.
 
 ```bash
 pnpm relgeo compile design.yaml -f svg --sheet A4-01
+```
+
+Select a view within a sheet with `--view`. If exactly one sheet contains the
+view, the CLI selects that sheet automatically; otherwise pass `--sheet` too.
+
+```bash
+pnpm relgeo compile design.yaml -f svg --sheet A4-01 --view front
 ```
 
 ### Validate Without Producing Output
@@ -144,6 +169,27 @@ to suppress terminal styling.
 Exit codes are stable by category: `0` success, `2` usage/option errors, `3`
 input errors, `4` validation/runtime/render errors, and `5` output/write
 errors.
+
+## Configuration and automation contract
+
+The CLI reads `.relgeo.json` from the current working directory when present.
+`--config <path>` takes an explicit file; `RELGEO_CONFIG` is the environment
+fallback. Precedence is built-in defaults, config file, `RELGEO_*` environment,
+then command-line flags. `--no-config` or `RELGEO_NO_CONFIG=1` disables config
+loading. Supported reusable keys are `input`, `output`, `format`, `unit`,
+`profile`, `param`, `sheet`, `diagnostics`, `color`, and `overwrite`.
+
+`-` is the only stdin marker. An explicit path always wins over stdin, and the
+CLI does not consume unrelated stdin. Output files are UTF-8 and atomically
+replaced; compile overwrites by default, while `--no-overwrite` returns output
+exit code `5`. `init` is safe by default and needs `--force` to replace an
+existing file.
+
+`NO_COLOR`, `RELGEO_NO_COLOR`, and truthy `CI` disable styling; CI also removes
+progress noise. stdout contains requested data only, and stderr contains
+progress or diagnostics. Document watch/rebuild, daemon, and JSON-RPC modes are
+explicitly out of scope for this one-shot contract until a separate lifecycle
+decision defines them.
 
 ## Commands
 

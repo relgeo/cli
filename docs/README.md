@@ -94,6 +94,11 @@ cat design.yaml | pnpm relgeo compile - --format json
 An explicit path takes precedence over stdin. Empty input and read failures are
 reported as non-zero input errors.
 
+The input may be omitted when configuration supplies `input`. A literal `-`
+always means stdin. The CLI never reads stdin as a fallback when an explicit
+path is present. Source files and stdin are decoded as strict UTF-8; empty
+sources and invalid UTF-8 are input failures.
+
 ### `check <file>`
 
 Digunakan untuk memvalidasi dan resolve dokumen tanpa menghasilkan output final.
@@ -104,6 +109,18 @@ Contoh:
 pnpm relgeo check path/to/design.yaml
 pnpm relgeo validate path/to/design.yaml
 ```
+
+### `init [path]`
+
+Creates a minimal valid RelGeo v0.5 starter document. The default destination
+is `relgeo.yaml`. Existing files are protected; use `--force` (or
+`--overwrite`) to replace one. The generated file is written as UTF-8.
+
+### `open [file]`
+
+Selects and inspects an existing document without launching an editor. It is a
+named alias for the CLI inspection workflow and follows the same path/stdin and
+config-input rules as `info`.
 
 ---
 
@@ -117,8 +134,12 @@ Option penting yang saat ini tersedia:
 4. `--profile <name>` untuk memilih profile dokumen
 5. `-p, --param <key=value...>` untuk parameter override
 6. `-s, --sheet <id>` untuk memilih sheet target saat export SVG
-7. `--diagnostics <mode>` untuk memilih `human` atau `json`
-8. `--no-color` untuk mematikan styling terminal
+7. `--view <id>` untuk memilih view di dalam sheet saat export SVG
+8. `--diagnostics <mode>` untuk memilih `human` atau `json`
+9. `--no-color` untuk mematikan styling terminal
+10. `--config <path>` untuk memilih config JSON secara eksplisit
+11. `--no-config` untuk menonaktifkan config file dan config environment
+12. `--overwrite` / `--no-overwrite` untuk mengontrol penimpaan output
 
 Target unit yang didukung adalah `px`, `mm`, `cm`, `m`, dan `in`. Format,
 profile, unit, parameter, dan selector yang tidak dikenal ditolak sebelum
@@ -128,21 +149,53 @@ Contoh:
 
 ```bash
 pnpm relgeo compile design.yaml -p width=200mm -p inspectable=true
-pnpm relgeo compile design.yaml -f svg --sheet A4-01 -o output.svg
+pnpm relgeo compile design.yaml -f svg --sheet A4-01 --view front -o output.svg
 ```
 
 Output JSON/SVG/graph tanpa `--output` hanya ditulis ke stdout. Dengan
 `--output`, parent directory dibuat bila perlu dan pesan sukses ditulis ke
 stderr.
 
+Output file selalu UTF-8 dan ditulis melalui file sementara lalu rename. Default
+compile mengizinkan overwrite agar kompatibel dengan workflow yang sudah ada;
+`--no-overwrite` mengubah existing-target menjadi exit code `5` tanpa pesan
+sukses atau artefak parsial. `init` memakai kebijakan aman: tidak overwrite
+kecuali `--force`/`--overwrite` diberikan.
+
 Untuk automation, `--diagnostics json` menulis satu envelope JSON stabil ke
 stderr dengan `version`, `source`, `exitCode`, `code`, `phase`, `severity`,
 `message`, `path`, `objectId`, dan `range`. Exit code: `0` sukses, `2` usage,
 `3` input, `4` validation/runtime/render, dan `5` output/write.
 
+## 6. Config dan noninteractive contract
+
+Config hanya berbentuk JSON object. Tanpa flag khusus, CLI membaca `.relgeo.json`
+di current working directory. `--config <path>` atau `RELGEO_CONFIG` memilih
+file lain; path relatif diselesaikan terhadap current working directory.
+
+Precedence ditetapkan sebagai berikut (kanan menang): built-in defaults →
+config file → `RELGEO_*` environment → command-line flags. `--no-config` atau
+`RELGEO_NO_CONFIG=1` menonaktifkan config file. Supported config keys adalah
+`input`, `output`, `format`, `unit`, `profile`, `param`, `sheet`,
+`diagnostics`, `color`, dan `overwrite`. Environment equivalents are
+`RELGEO_INPUT`, `RELGEO_OUTPUT`, `RELGEO_FORMAT`, `RELGEO_UNIT`,
+`RELGEO_PROFILE`, `RELGEO_PARAM` (comma-separated), `RELGEO_SHEET`,
+`RELGEO_VIEW`, `RELGEO_DIAGNOSTICS`, dan `RELGEO_OVERWRITE`.
+
+`NO_COLOR=1`, `RELGEO_NO_COLOR=1`, dan any truthy `CI` value disable styling;
+CI also suppresses progress messages. `--no-color` is the explicit CLI form.
+stdout remains reserved for requested data; human progress and diagnostics use
+stderr, while `--diagnostics json` emits one JSON envelope on stderr for a
+failure.
+
+Document `watch`/rebuild, daemon, dan JSON-RPC modes are intentionally outside
+this one-shot CLI contract. The package does not watch source/config files or
+keep a rebuild session alive; adding that lifecycle requires a separate scope
+decision covering debounce, recovery, shutdown, and stream behavior.
+
 ---
 
-## 6. Boundary Penting
+## 7. Boundary Penting
 
 `@relgeo/cli` bukan:
 
@@ -154,7 +207,7 @@ CLI adalah surface operasional untuk terminal.
 
 ---
 
-## 7. Development
+## 8. Development
 
 Untuk smoke test:
 
@@ -170,7 +223,7 @@ pnpm tsx src/index.ts compile ../playground/src/assets/examples/basics/01_fundam
 
 ---
 
-## 8. Hubungan Dengan Website Docs
+## 9. Hubungan Dengan Website Docs
 
 Halaman website docs untuk `CLI` sebaiknya dibaca sebagai:
 

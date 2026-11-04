@@ -2,7 +2,7 @@ import { Command } from "commander";
 import chalk from "chalk";
 import fs from "fs-extra";
 import path from "node:path";
-import { compileRelGeo, getDependencyGraph, parseRelGeo, toDiagnostic } from "@relgeo/core";
+import { compileRelGeo, getDependencyGraph, parseRelGeo, serializeResolvedScene, toDiagnostic } from "@relgeo/core";
 import type { RelGeoDiagnostic, RelGeoDocument } from "@relgeo/core";
 import { renderToSVG } from "@relgeo/renderer-svg";
 
@@ -59,12 +59,197 @@ class CliError extends Error {
 
 interface CommandOptions {
   diagnostics?: string;
-  noColor?: boolean;
+  color?: boolean;
+  config?: string | false;
+  input?: string;
+  output?: string;
+  format?: string;
+  unit?: string;
+  profile?: string;
+  param?: string[];
+  sheet?: string;
+  view?: string;
+  overwrite?: boolean;
 }
 
 interface InputSource {
   content: string;
   label: string;
+}
+
+interface CliConfig {
+  input?: string;
+  output?: string;
+  format?: string;
+  unit?: string;
+  profile?: string;
+  param?: string[] | Record<string, string | number | boolean>;
+  sheet?: string;
+  view?: string;
+  diagnostics?: string;
+  color?: boolean;
+  overwrite?: boolean;
+}
+
+interface ResolvedCommand {
+  input: string;
+  options: CommandOptions;
+  configPath?: string;
+}
+
+const CONFIG_FILE_NAME = ".relgeo.json";
+const CONFIG_KEYS = new Set([
+  "input",
+  "output",
+  "format",
+  "unit",
+  "profile",
+  "param",
+  "sheet",
+  "view",
+  "diagnostics",
+  "color",
+  "overwrite",
+]);
+
+function environmentFlag(value: string | undefined): boolean {
+  return value !== undefined && value !== "" && value !== "0" && value.toLowerCase() !== "false";
+}
+
+function hasArg(flag: string): boolean {
+  return process.argv.slice(2).includes(flag);
+}
+
+function normalizeParamConfig(value: CliConfig["param"]): string[] | undefined {
+  if (value === undefined) return undefined;
+  if (Array.isArray(value)) return value;
+  return Object.entries(value).map(([key, param]) => `${key}=${String(param)}`);
+}
+
+function readEnvironmentOptions(): CliConfig {
+  const env = process.env;
+  const param = env.RELGEO_PARAM
+    ? env.RELGEO_PARAM.split(",").map((value) => value.trim()).filter(Boolean)
+    : undefined;
+  return pickDefined({
+    input: env.RELGEO_INPUT,
+    output: env.RELGEO_OUTPUT,
+    format: env.RELGEO_FORMAT,
+    unit: env.RELGEO_UNIT,
+    profile: env.RELGEO_PROFILE,
+    param,
+    sheet: env.RELGEO_SHEET,
+    view: env.RELGEO_VIEW,
+    diagnostics: env.RELGEO_DIAGNOSTICS,
+    color: environmentFlag(env.RELGEO_NO_COLOR) || environmentFlag(env.NO_COLOR) || environmentFlag(env.CI)
+      ? false
+      : undefined,
+    overwrite: env.RELGEO_OVERWRITE === undefined ? undefined : environmentFlag(env.RELGEO_OVERWRITE),
+  }) as CliConfig;
+}
+
+function validateConfigObject(value: unknown, source: string): CliConfig {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new CliError(`Config file must contain a JSON object: ${source}`, CLI_EXIT_CODES.usage, "INVALID_CONFIG", {
+      phase: "parse",
+      path: source,
+    });
+  }
+
+  const config = value as Record<string, unknown>;
+  const unknown = Object.keys(config).filter((key) => !CONFIG_KEYS.has(key));
+  if (unknown.length > 0) {
+    throw new CliError(`Unknown config key(s): ${unknown.join(", ")}`, CLI_EXIT_CODES.usage, "INVALID_CONFIG", {
+      phase: "validate",
+      path: source,
+    });
+  }
+
+  if (config.param !== undefined && !Array.isArray(config.param) && (typeof config.param !== "object" || config.param === null)) {
+    throw new CliError("Config key \"param\" must be an array or object", CLI_EXIT_CODES.usage, "INVALID_CONFIG", {
+      phase: "validate",
+      path: `${source}.param`,
+    });
+  }
+
+  for (const key of ["color", "overwrite"]) {
+    if (config[key] !== undefined && typeof config[key] !== "boolean") {
+      throw new CliError(`Config key \"${key}\" must be boolean`, CLI_EXIT_CODES.usage, "INVALID_CONFIG", {
+        phase: "validate",
+        path: `${source}.${key}`,
+      });
+    }
+  }
+
+  return {
+    ...(config as CliConfig),
+    param: normalizeParamConfig(config.param as CliConfig["param"]),
+  };
+}
+
+async function loadConfig(rawOptions: CommandOptions): Promise<{ config: CliConfig; configPath?: string }> {
+  const envConfigPath = process.env.RELGEO_CONFIG;
+  const configOption = rawOptions.config;
+  if (configurationDisabled(rawOptions)) {
+    return { config: {} };
+  }
+
+  const requestedPath = typeof configOption === "string" ? configOption : envConfigPath;
+  const configPath = requestedPath
+    ? path.resolve(process.cwd(), requestedPath)
+    : path.join(process.cwd(), CONFIG_FILE_NAME);
+  const exists = await fs.pathExists(configPath);
+  if (!exists) {
+    if (requestedPath) {
+      throw new CliError(`Config file not found: ${requestedPath}`, CLI_EXIT_CODES.input, "CONFIG_NOT_FOUND", {
+        phase: "parse",
+        path: requestedPath,
+      });
+    }
+    return { config: {} };
+  }
+
+  let parsed: unknown;
+  try {
+    parsed = await fs.readJson(configPath);
+  } catch {
+    throw new CliError(`Unable to parse config file \"${configPath}\"`, CLI_EXIT_CODES.input, "CONFIG_READ_FAILED", {
+      phase: "parse",
+      path: configPath,
+    });
+  }
+  return { config: validateConfigObject(parsed, configPath), configPath };
+}
+
+function configurationDisabled(rawOptions: CommandOptions): boolean {
+  return rawOptions.config === false || hasArg("--no-config") || environmentFlag(process.env.RELGEO_NO_CONFIG);
+}
+
+function pickDefined<T extends object>(value: T): Partial<T> {
+  return Object.fromEntries(Object.entries(value).filter(([, item]) => item !== undefined)) as Partial<T>;
+}
+
+async function resolveCommand(rawInput: string | undefined, rawOptions: CommandOptions): Promise<ResolvedCommand> {
+  const loaded = await loadConfig(rawOptions);
+  const environmentOptions = readEnvironmentOptions();
+  const environment = configurationDisabled(rawOptions)
+    ? pickDefined({ color: environmentOptions.color }) as CliConfig
+    : environmentOptions;
+  const flags = pickDefined(rawOptions);
+  const merged = {
+    ...loaded.config,
+    ...environment,
+    ...flags,
+    param: rawOptions.param ?? environment.param ?? loaded.config.param,
+  } as CommandOptions & { input?: string };
+  const input = rawInput ?? merged.input;
+  if (!input) {
+    throw new CliError("Input path is required (use - for stdin)", CLI_EXIT_CODES.usage, "MISSING_INPUT", {
+      phase: "validate",
+      path: "input",
+    });
+  }
+  return { input, options: merged, configPath: loaded.configPath };
 }
 
 function parseCliOverride(raw: string): string | number | boolean {
@@ -80,7 +265,7 @@ function parseCliOverride(raw: string): string | number | boolean {
 }
 
 function applyColorMode(options: CommandOptions = {}) {
-  if (options.noColor || process.env.NO_COLOR !== undefined || process.env.CI === "1") {
+  if (options.color === false || environmentFlag(process.env.NO_COLOR) || environmentFlag(process.env.CI)) {
     (chalk as unknown as { level: number }).level = 0;
   }
 }
@@ -96,6 +281,21 @@ function validateDiagnosticsMode(raw: string | undefined): DiagnosticsMode {
     );
   }
   return mode;
+}
+
+function diagnosticsModeFromArgv(): DiagnosticsMode {
+  const args = process.argv.slice(2);
+  let requested = process.env.RELGEO_DIAGNOSTICS;
+  for (let index = 0; index < args.length; index += 1) {
+    const argument = args[index];
+    if (argument === "--diagnostics") {
+      requested = args[index + 1];
+      index += 1;
+    } else if (argument.startsWith("--diagnostics=")) {
+      requested = argument.slice("--diagnostics=".length);
+    }
+  }
+  return requested === "json" ? "json" : "human";
 }
 
 function validateFormat(raw: string | undefined): (typeof SUPPORTED_FORMATS)[number] {
@@ -152,12 +352,23 @@ function parseOverrides(rawValues: string[] | undefined): Record<string, string 
   return overrides;
 }
 
+function decodeUtf8(buffer: Buffer, source: string): string {
+  try {
+    return new TextDecoder("utf-8", { fatal: true }).decode(buffer);
+  } catch {
+    throw new CliError(`Input is not valid UTF-8: ${source}`, CLI_EXIT_CODES.input, "INVALID_ENCODING", {
+      phase: "parse",
+      path: source,
+    });
+  }
+}
+
 async function readStdin(): Promise<string> {
   const chunks: Buffer[] = [];
   for await (const chunk of process.stdin) {
     chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(String(chunk)));
   }
-  return Buffer.concat(chunks).toString("utf8");
+  return decodeUtf8(Buffer.concat(chunks), "<stdin>");
 }
 
 async function readInput(source: string): Promise<InputSource> {
@@ -181,8 +392,16 @@ async function readInput(source: string): Promise<InputSource> {
   }
 
   try {
-    return { content: await fs.readFile(filePath, "utf8"), label: source };
+    const content = decodeUtf8(await fs.readFile(filePath), source);
+    if (!content.trim()) {
+      throw new CliError("Input is empty", CLI_EXIT_CODES.input, "EMPTY_INPUT", {
+        phase: "parse",
+        path: source,
+      });
+    }
+    return { content, label: source };
   } catch (error) {
+    if (error instanceof CliError) throw error;
     throw new CliError(`Unable to read file "${source}"`, CLI_EXIT_CODES.input, "INPUT_READ_FAILED", {
       phase: "parse",
       path: source,
@@ -198,6 +417,7 @@ function validateDocumentOptions(
     profile?: string;
     param?: string[];
     sheet?: string;
+    view?: string;
   },
 ): { document: RelGeoDocument; format: (typeof SUPPORTED_FORMATS)[number]; unit: (typeof SUPPORTED_UNITS)[number]; overrides: Record<string, string | number | boolean> } {
   const format = validateFormat(options.format);
@@ -235,7 +455,76 @@ function validateDocumentOptions(
     );
   }
 
+  if (options.view && format !== "svg") {
+    throw new CliError(
+      "The --view option is only supported with --format svg",
+      CLI_EXIT_CODES.usage,
+      "VIEW_FORMAT_MISMATCH",
+      { path: "view" },
+    );
+  }
+
+  if (options.view && !document.views?.[options.view]) {
+    throw new CliError(
+      `Unknown view "${options.view}"`,
+      CLI_EXIT_CODES.usage,
+      "UNKNOWN_VIEW",
+      { path: "view" },
+    );
+  }
+
   return { document, format, unit, overrides };
+}
+
+function selectSvgView(scene: any, sheetId: string | undefined, viewId: string | undefined): { scene: any; sheetId?: string } {
+  if (!viewId) return { scene, sheetId };
+
+  const sheets = scene.sheets ?? {};
+  const matchingSheetIds = Object.entries<any>(sheets)
+    .filter(([, sheet]) => Array.isArray(sheet.views) && sheet.views.some((placement: any) => placement.use === viewId))
+    .map(([id]) => id);
+
+  const selectedSheetId = sheetId ?? (matchingSheetIds.length === 1 ? matchingSheetIds[0] : undefined);
+  if (!selectedSheetId) {
+    if (matchingSheetIds.length > 1) {
+      throw new CliError(`View "${viewId}" is present on multiple sheets; use --sheet`, CLI_EXIT_CODES.usage, "VIEW_REQUIRES_SHEET", {
+        phase: "validate",
+        path: "view",
+      });
+    }
+    throw new CliError(`View "${viewId}" is not placed on a sheet`, CLI_EXIT_CODES.usage, "VIEW_NOT_ON_SHEET", {
+      phase: "validate",
+      path: "view",
+    });
+  }
+
+  const sheet = sheets[selectedSheetId];
+  if (!sheet) {
+    throw new CliError(`Unknown sheet "${selectedSheetId}"`, CLI_EXIT_CODES.validation, "MISSING_SHEET", {
+      phase: "resolve",
+      path: "sheet",
+    });
+  }
+  const selectedViews = Array.isArray(sheet.views)
+    ? sheet.views.filter((placement: any) => placement.use === viewId)
+    : [];
+  if (selectedViews.length === 0) {
+    throw new CliError(`View "${viewId}" is not placed on sheet "${selectedSheetId}"`, CLI_EXIT_CODES.validation, "VIEW_NOT_ON_SHEET", {
+      phase: "resolve",
+      path: "view",
+    });
+  }
+
+  return {
+    scene: {
+      ...scene,
+      sheets: {
+        ...sheets,
+        [selectedSheetId]: { ...sheet, views: selectedViews },
+      },
+    },
+    sheetId: selectedSheetId,
+  };
 }
 
 function isCommanderError(error: unknown): error is { code: string; message: string } {
@@ -258,12 +547,16 @@ function classifyError(error: unknown): CliError {
     });
   }
 
+  const candidate = error && typeof error === "object"
+    ? error as { code?: unknown }
+    : {};
   const diagnostic = toDiagnostic(error);
+  const code = typeof candidate.code === "string" ? candidate.code : diagnostic.code;
   const inputCodes = new Set(["INVALID_YAML", "UNSUPPORTED_SPEC_VERSION"]);
-  const exitCode = inputCodes.has(diagnostic.code)
+  const exitCode = inputCodes.has(code)
     ? CLI_EXIT_CODES.input
     : CLI_EXIT_CODES.validation;
-  return new CliError(diagnostic.message, exitCode, diagnostic.code, {
+  return new CliError(diagnostic.message, exitCode, code, {
     phase: diagnostic.phase,
     path: diagnostic.path,
     objectId: diagnostic.objectId,
@@ -278,20 +571,29 @@ async function runCommand<T>(
   action: () => Promise<T>,
 ): Promise<T> {
   applyColorMode(options);
-  validateDiagnosticsMode(options.diagnostics);
   try {
+    validateDiagnosticsMode(options.diagnostics);
     return await action();
   } catch (error) {
     const cliError = classifyError(error);
     cliError.title = title;
-    cliError.source = source === "-" ? "<stdin>" : source;
+    const resolvedSource = options.input ?? source;
+    cliError.source = resolvedSource === "-" ? "<stdin>" : resolvedSource;
     cliError.diagnosticsMode = (options.diagnostics ?? "human") as DiagnosticsMode;
     throw cliError;
   }
 }
 
 function diagnosticFromCliError(error: CliError): RelGeoDiagnostic {
-  return toDiagnostic(error, { fallbackCode: "CLI_ERROR" });
+  return {
+    code: error.code ?? "CLI_ERROR",
+    message: error.message,
+    phase: error.phase,
+    severity: error.severity,
+    path: error.path,
+    objectId: error.objectId,
+    range: error.range,
+  };
 }
 
 function writeHumanError(error: CliError) {
@@ -330,6 +632,7 @@ function handleError(error: unknown) {
   }
 
   const cliError = classifyError(error);
+  cliError.diagnosticsMode ??= diagnosticsModeFromArgv();
   if (cliError.diagnosticsMode === "json") {
     writeJsonError(cliError);
   } else {
@@ -343,26 +646,82 @@ function addBoundaryOptions(command: Command) {
     .exitOverride((error) => {
       throw error;
     })
-    .option("--diagnostics <mode>", "diagnostics output mode (human, json)", "human")
-    .option("--no-color", "disable color and progress styling");
+    .option("--diagnostics <mode>", "diagnostics output mode (human, json)")
+    .option("--config <path>", `read defaults from a JSON config file (default: ${CONFIG_FILE_NAME})`)
+    .option("--no-config", "ignore config files and configuration environment variables")
+    .option("--no-color", "disable color styling")
+    .option("--overwrite", "allow replacing an existing output file")
+    .option("--no-overwrite", "fail when the output file already exists");
 }
 
 program
   .name("relgeo")
   .description("RelGeo CLI - Relation-first parametric geometry engine for the active RelGeo DSL v0.5 surface")
   .version("0.5.0")
-  .option("--no-color", "disable color and progress styling");
+  .option("--config <path>", `read defaults from a JSON config file (default: ${CONFIG_FILE_NAME})`)
+  .option("--no-config", "ignore config files and configuration environment variables")
+  .option("--no-color", "disable color styling")
+  .option("--overwrite", "allow replacing an existing output file")
+  .option("--no-overwrite", "fail when the output file already exists");
+
+async function writeOutputFile(outputPath: string, outputData: string, overwrite: boolean): Promise<void> {
+  const resolvedPath = path.resolve(process.cwd(), outputPath);
+  if (!overwrite && await fs.pathExists(resolvedPath)) {
+    throw new CliError(`Output file already exists: ${outputPath}`, CLI_EXIT_CODES.output, "OUTPUT_EXISTS", {
+      phase: "resolve",
+      path: outputPath,
+    });
+  }
+
+  const parent = path.dirname(resolvedPath);
+  const temporaryPath = path.join(parent, `.${path.basename(resolvedPath)}.${process.pid}.${Date.now()}.tmp`);
+  try {
+    await fs.ensureDir(parent);
+    await fs.writeFile(temporaryPath, outputData, "utf8");
+    await fs.rename(temporaryPath, resolvedPath);
+  } catch {
+    await fs.remove(temporaryPath).catch(() => undefined);
+    throw new CliError(`Unable to write output file "${outputPath}"`, CLI_EXIT_CODES.output, "OUTPUT_WRITE_FAILED", {
+      phase: "resolve",
+      path: outputPath,
+    });
+  }
+}
+
+const STARTER_DOCUMENT = `version: 0.5
+objects:
+  rectangle:
+    type: rect
+    size: [100mm, 60mm]
+`;
+
+function commandOptions(commandOptions: CommandOptions): CommandOptions {
+  const rootOptions = program.opts() as CommandOptions;
+  return {
+    ...rootOptions,
+    ...pickDefined(commandOptions),
+    color: hasArg("--no-color") ? false : undefined,
+    overwrite: commandOptions.overwrite ?? rootOptions.overwrite,
+    config: commandOptions.config ?? rootOptions.config,
+  };
+}
 
 const infoCommand = addBoundaryOptions(
   program
     .command("info")
     .description("Show information about parameters, profiles, and document structure in a RelGeo file")
-    .argument("<file>", "path to the .yaml file or - for stdin"),
+    .argument("[file]", "path to the .yaml file or - for stdin (defaults to config input)"),
 );
 
-infoCommand.action(async (file: string, options: CommandOptions) => {
-  await runCommand("Error reading file", file, options, async () => {
-    const input = await readInput(file);
+async function runInfoCommand(file: string | undefined, rawOptions: CommandOptions) {
+  const options = commandOptions(rawOptions);
+  await runCommand("Error reading file", file ?? "<config>", options, async () => {
+    const resolved = await resolveCommand(file, options);
+    options.input = resolved.input;
+    options.diagnostics = resolved.options.diagnostics;
+    applyColorMode(resolved.options);
+    validateDiagnosticsMode(resolved.options.diagnostics);
+    const input = await readInput(resolved.input);
     const document = parseRelGeo(input.content, { mode: "editor" });
     const objects = document.objects ?? {};
 
@@ -430,66 +789,97 @@ infoCommand.action(async (file: string, options: CommandOptions) => {
     });
     console.log("");
   });
-});
+}
+
+infoCommand.action(async (file: string | undefined, options: CommandOptions) => runInfoCommand(file, options));
+
+const openCommand = addBoundaryOptions(
+  program
+    .command("open")
+    .description("Select and inspect an existing RelGeo document without launching an editor")
+    .argument("[file]", "path to the .yaml file or - for stdin (defaults to config input)"),
+);
+
+openCommand.action(async (file: string | undefined, options: CommandOptions) => runInfoCommand(file, options));
 
 const compileCommand = addBoundaryOptions(
   program
     .command("compile")
     .description("Compile a RelGeo YAML file to resolved geometry")
-    .argument("<file>", "path to the .yaml file or - for stdin")
+    .argument("[file]", "path to the .yaml file or - for stdin (defaults to config input)")
     .option("-o, --output <path>", "output path (defaults to stdout)")
-    .option("-f, --format <format>", `output format (${SUPPORTED_FORMATS.join(", ")})`, "json")
-    .option("-u, --unit <unit>", `target unit (${SUPPORTED_UNITS.join(", ")})`, "px")
+    .option("-f, --format <format>", `output format (${SUPPORTED_FORMATS.join(", ")})`)
+    .option("-u, --unit <unit>", `target unit (${SUPPORTED_UNITS.join(", ")})`)
     .option("--profile <name>", "select a parameter profile from the file")
     .option("-p, --param <keyvalue...>", "override parameters (format: key=value)")
-    .option("-s, --sheet <id>", "render a specific sheet (SVG format only)"),
+    .option("-s, --sheet <id>", "render a specific sheet (SVG format only)")
+    .option("--view <id>", "render a specific view within a sheet (SVG format only)"),
 );
 
-compileCommand.action(async (file: string, options: CommandOptions & {
+compileCommand.action(async (file: string | undefined, options: CommandOptions & {
   output?: string;
   format?: string;
   unit?: string;
   profile?: string;
   param?: string[];
   sheet?: string;
+  view?: string;
 }) => {
-  await runCommand("Compilation Failed", file, options, async () => {
-    const input = await readInput(file);
-    const validated = validateDocumentOptions(input.content, options);
-    if (options.diagnostics !== "json") {
+  const rawOptions = commandOptions(options);
+  await runCommand("Compilation Failed", file ?? "<config>", rawOptions, async () => {
+    const resolved = await resolveCommand(file, rawOptions);
+    rawOptions.input = resolved.input;
+    rawOptions.diagnostics = resolved.options.diagnostics;
+    applyColorMode(resolved.options);
+    validateDiagnosticsMode(resolved.options.diagnostics);
+    const input = await readInput(resolved.input);
+    const validated = validateDocumentOptions(input.content, resolved.options);
+    if (resolved.options.diagnostics !== "json" && !environmentFlag(process.env.CI)) {
       console.error(chalk.blue(`Compiling ${input.label}...`));
     }
 
     const scene = compileRelGeo(input.content, {
       targetUnit: validated.unit,
-      profile: options.profile,
+      profile: resolved.options.profile,
       overrides: validated.overrides,
     });
 
     let outputData: string;
     if (validated.format === "svg") {
-      outputData = renderToSVG(scene, { sheetId: options.sheet });
+      const selection = selectSvgView(scene, resolved.options.sheet, resolved.options.view);
+      outputData = renderToSVG(selection.scene, { sheetId: selection.sheetId });
     } else if (validated.format === "graph") {
       const graph = getDependencyGraph(validated.document.objects ?? {});
       outputData = JSON.stringify(graph, null, 2);
     } else {
-      outputData = JSON.stringify(scene, null, 2);
+      outputData = serializeResolvedScene(scene);
     }
 
-    if (options.output) {
-      const outputPath = path.resolve(process.cwd(), options.output);
-      try {
-        await fs.outputFile(outputPath, outputData, "utf8");
-      } catch (error) {
-        throw new CliError(`Unable to write output file "${options.output}"`, CLI_EXIT_CODES.output, "OUTPUT_WRITE_FAILED", {
-          phase: "resolve",
-          path: options.output,
-        });
-      }
-      console.error(chalk.green(`Successfully compiled to ${options.output} (${validated.format})`));
+    if (resolved.options.output) {
+      await writeOutputFile(resolved.options.output, outputData, resolved.options.overwrite ?? true);
+      console.error(chalk.green(`Successfully compiled to ${resolved.options.output} (${validated.format})`));
     } else {
       console.log(outputData);
     }
+  });
+});
+
+const initCommand = addBoundaryOptions(
+  program
+    .command("init")
+    .description("Create a minimal valid RelGeo v0.5 starter document")
+    .argument("[path]", "destination path (default: relgeo.yaml)")
+    .option("--force", "replace an existing starter document"),
+);
+
+initCommand.action(async (targetPath: string | undefined, rawOptions: CommandOptions & { force?: boolean }) => {
+  const options = commandOptions(rawOptions);
+  const outputPath = targetPath ?? "relgeo.yaml";
+  await runCommand("Initialization Failed", outputPath, options, async () => {
+    applyColorMode(options);
+    const overwrite = rawOptions.force === true || options.overwrite === true;
+    await writeOutputFile(outputPath, STARTER_DOCUMENT, overwrite);
+    console.error(chalk.green(`Created ${outputPath}`));
   });
 });
 
@@ -498,27 +888,33 @@ const checkCommand = addBoundaryOptions(
     .command("check")
     .alias("validate")
     .description("Validate and resolve a RelGeo YAML file, reporting errors without producing output")
-    .argument("<file>", "path to the .yaml file or - for stdin")
-    .option("-u, --unit <unit>", `target unit (${SUPPORTED_UNITS.join(", ")})`, "mm")
+    .argument("[file]", "path to the .yaml file or - for stdin (defaults to config input)")
+    .option("-u, --unit <unit>", `target unit (${SUPPORTED_UNITS.join(", ")})`)
     .option("--profile <name>", "select a parameter profile from the file")
     .option("-p, --param <keyvalue...>", "override parameters (format: key=value)"),
 );
 
-checkCommand.action(async (file: string, options: CommandOptions & {
+checkCommand.action(async (file: string | undefined, options: CommandOptions & {
   unit?: string;
   profile?: string;
   param?: string[];
 }) => {
-  await runCommand("Validation Failed", file, options, async () => {
-    const input = await readInput(file);
+  const rawOptions = commandOptions(options);
+  await runCommand("Validation Failed", file ?? "<config>", rawOptions, async () => {
+    const resolved = await resolveCommand(file, rawOptions);
+    rawOptions.input = resolved.input;
+    rawOptions.diagnostics = resolved.options.diagnostics;
+    applyColorMode(resolved.options);
+    validateDiagnosticsMode(resolved.options.diagnostics);
+    const input = await readInput(resolved.input);
     const validated = validateDocumentOptions(input.content, {
-      unit: options.unit,
-      profile: options.profile,
-      param: options.param,
+      unit: resolved.options.unit ?? "mm",
+      profile: resolved.options.profile,
+      param: resolved.options.param,
     });
     const scene = compileRelGeo(input.content, {
       targetUnit: validated.unit,
-      profile: options.profile,
+      profile: resolved.options.profile,
       overrides: validated.overrides,
     });
 
