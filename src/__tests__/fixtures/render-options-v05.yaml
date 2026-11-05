@@ -1,0 +1,53 @@
+version: 0.5
+
+scene:
+  unit: mm
+
+parameters:
+  width:
+    type: length
+    default: 120mm
+  height:
+    type: length
+    default: 80mm
+  count:
+    type: number
+    default: 2
+  enabled:
+    type: boolean
+    default: true
+  label:
+    type: string
+    default: standard
+
+profiles:
+  compact:
+    width: 80mm
+    height: 50mm
+
+objects:
+  panel:
+    type: rect
+    size: [width, height]
+
+views:
+  front:
+    target: panel
+    scale: 1
+  detail:
+    target: panel
+    scale: 2
+
+sheets:
+  primary:
+    size: A4
+    views:
+      - use: front
+        place:
+          topLeft: [20mm, 20mm]
+  detailSheet:
+    size: A4
+    views:
+      - use: detail
+        place:
+          topLeft: [30mm, 30mm]

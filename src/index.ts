@@ -464,6 +464,15 @@ function validateDocumentOptions(
     );
   }
 
+  if (options.sheet && !document.sheets?.[options.sheet]) {
+    throw new CliError(
+      `Unknown sheet "${options.sheet}"`,
+      CLI_EXIT_CODES.validation,
+      "MISSING_SHEET",
+      { phase: "resolve", path: "sheet" },
+    );
+  }
+
   if (options.view && !document.views?.[options.view]) {
     throw new CliError(
       `Unknown view "${options.view}"`,

@@ -36,6 +36,7 @@ objects:
 `;
 
 const tempDirs: string[] = [];
+const renderOptionsFixture = path.join(packageDir, "src/__tests__/fixtures/render-options-v05.yaml");
 
 async function makeTempFile(name: string, contents: string, cwd?: string) {
   const dir = cwd ?? await fs.mkdtemp(path.join(os.tmpdir(), "relgeo-cli-test-"));
@@ -242,6 +243,53 @@ describe("@relgeo/cli smoke surface", () => {
     expect(candidateScene.objects.panel.width).toBeCloseTo(3, 6);
   });
 
+  it("covers the v0.5 profile, typed override, and target-unit matrix", async () => {
+    const compiled = await runCli([
+      "compile",
+      renderOptionsFixture,
+      "--profile",
+      "compact",
+      "--unit",
+      "cm",
+      "--param",
+      "width=200mm",
+      "--param",
+      "height=90mm",
+      "--param",
+      "count=3",
+      "--param",
+      "enabled=false",
+      "--param",
+      "label=release",
+    ]);
+    const scene = JSON.parse(compiled.stdout);
+
+    expect(scene.unit).toBe("cm");
+    expect(scene.objects.panel.width).toBeCloseTo(20, 6);
+    expect(scene.objects.panel.height).toBeCloseTo(9, 6);
+
+    await expect(runCli([
+      "check",
+      renderOptionsFixture,
+      "--profile",
+      "compact",
+      "--unit",
+      "cm",
+      "--param",
+      "width=200mm",
+      "--param",
+      "height=90mm",
+      "--param",
+      "count=3",
+      "--param",
+      "enabled=false",
+      "--param",
+      "label=release",
+    ])).resolves.toMatchObject({
+      stdout: expect.stringContaining("unit: cm"),
+    });
+  });
+
   it("rejects unsupported formats instead of falling back to JSON", async () => {
     const filePath = await makeTempFile("unknown-format.yaml", validDoc);
 
@@ -321,6 +369,34 @@ describe("@relgeo/cli smoke surface", () => {
         code: 4,
         stderr: expect.stringContaining("[MISSING_SHEET]"),
       });
+  });
+
+  it("selects a declared v0.5 sheet and leaves no artifact for an invalid sheet", async () => {
+    const selected = await runCli(["compile", renderOptionsFixture, "-f", "svg", "--sheet", "primary", "--no-color"]);
+    expect(selected.stdout).toContain("Viewport: front");
+    expect(selected.stdout).not.toContain("Viewport: detail");
+
+    const selectedView = await runCli(["compile", renderOptionsFixture, "-f", "svg", "--view", "detail", "--no-color"]);
+    expect(selectedView.stdout).toContain("Viewport: detail");
+    expect(selectedView.stdout).not.toContain("Viewport: front");
+
+    const dir = await fs.mkdtemp(path.join(os.tmpdir(), "relgeo-cli-sheet-output-"));
+    tempDirs.push(dir);
+    const outputPath = path.join(dir, "invalid-sheet.svg");
+    await expect(runCli([
+      "compile",
+      renderOptionsFixture,
+      "-f",
+      "svg",
+      "--sheet",
+      "missing",
+      "--output",
+      outputPath,
+    ])).rejects.toMatchObject({
+      code: 4,
+      stderr: expect.stringContaining("[MISSING_SHEET]"),
+    });
+    expect(await fs.pathExists(outputPath)).toBe(false);
   });
 
   it("selects a view within its sheet and rejects invalid view intent", async () => {
