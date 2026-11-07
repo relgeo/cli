@@ -123,6 +123,23 @@ describe("@relgeo/cli smoke surface", () => {
     expect(first.stdout).toBe(second.stdout);
   });
 
+  it("keeps canonical metadata, view order, and sheet placement in JSON output", async () => {
+    const fixturePath = path.resolve(packageDir, "../fixtures/reference/09-multi-sheet-title-block.yaml");
+    const { stdout } = await runCli(["compile", fixturePath, "--format", "json"]);
+    const parsed = JSON.parse(stdout);
+
+    expect(parsed.meta).toMatchObject({
+      title: "Bracket Overview",
+      version: "BRKT-2026.07",
+      date: "2026-07-13",
+    });
+    expect(parsed.viewOrder).toEqual(["front", "detail"]);
+    expect(parsed.sheetOrder).toEqual(["sheetA", "sheetB"]);
+    expect(parsed.sheets.sheetA.views[0].use).toBe("front");
+    expect(parsed.sheets.sheetB.views[0].use).toBe("detail");
+    expect(stdout).toBe((await runCli(["compile", fixturePath, "--format", "json"])).stdout);
+  });
+
   it("compiles valid input from stdin without contaminating stdout", async () => {
     const { stdout, stderr } = await runCliWithInput(["compile", "-", "--format", "json"], validDoc);
     const parsed = JSON.parse(stdout);
@@ -359,6 +376,30 @@ describe("@relgeo/cli smoke surface", () => {
 
     expect(stdout).toContain("<svg");
     expect(stdout).toContain("</svg>");
+  });
+
+  it("keeps hostile presentation metadata safe on the CLI SVG boundary", async () => {
+    const filePath = await makeTempFile("compile-svg-hostile-metadata.yaml", `version: 0.5
+objects:
+  group:
+    type: group
+    children: [line]
+    meta:
+      opacity: '"><script>alert(1)</script>'
+  line:
+    type: line
+    from: [0, 0]
+    to: [10, 0]
+    meta:
+      role: '"><script>alert(2)</script>'
+      label: '<script>alert(3)</script>'
+`);
+    const { stdout } = await runCli(["compile", filePath, "-f", "svg"]);
+
+    expect(stdout).not.toContain("<script>");
+    expect(stdout).toContain('opacity="1"');
+    expect(stdout).toContain("&lt;script&gt;alert(2)&lt;/script&gt;");
+    expect(stdout).toContain("&lt;script&gt;alert(3)&lt;/script&gt;");
   });
 
   it("fails explicitly for an unknown SVG sheet", async () => {

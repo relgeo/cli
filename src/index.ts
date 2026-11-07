@@ -556,11 +556,11 @@ function classifyError(error: unknown): CliError {
     });
   }
 
-  const candidate = error && typeof error === "object"
-    ? error as { code?: unknown }
-    : {};
   const diagnostic = toDiagnostic(error);
-  const code = typeof candidate.code === "string" ? candidate.code : diagnostic.code;
+  // Never let an unregistered internal code escape the Core diagnostic
+  // catalog. Adapter-specific errors are handled as CliError before this
+  // normalization boundary.
+  const code = diagnostic.code;
   const inputCodes = new Set(["INVALID_YAML", "UNSUPPORTED_SPEC_VERSION"]);
   const exitCode = inputCodes.has(code)
     ? CLI_EXIT_CODES.input
