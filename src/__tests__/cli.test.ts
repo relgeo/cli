@@ -37,6 +37,8 @@ objects:
 
 const tempDirs: string[] = [];
 const renderOptionsFixture = path.join(packageDir, "src/__tests__/fixtures/render-options-v05.yaml");
+const defaultTestEnv = { ...process.env };
+delete defaultTestEnv.CI;
 
 async function makeTempFile(name: string, contents: string, cwd?: string) {
   const dir = cwd ?? await fs.mkdtemp(path.join(os.tmpdir(), "relgeo-cli-test-"));
@@ -54,14 +56,14 @@ async function makeTempBytes(name: string, contents: Uint8Array) {
   return filePath;
 }
 
-async function runCli(args: string[], extraEnv: NodeJS.ProcessEnv = process.env, cwd = packageDir) {
+async function runCli(args: string[], extraEnv: NodeJS.ProcessEnv = defaultTestEnv, cwd = packageDir) {
   return execFileAsync("node", [cliBin, ...args], {
     cwd,
     env: extraEnv,
   });
 }
 
-function runCliWithInput(args: string[], input: string, extraEnv: NodeJS.ProcessEnv = process.env, cwd = packageDir) {
+function runCliWithInput(args: string[], input: string, extraEnv: NodeJS.ProcessEnv = defaultTestEnv, cwd = packageDir) {
   return new Promise<{ stdout: string; stderr: string }>((resolve, reject) => {
     const child = execFile("node", [cliBin, ...args], {
       cwd,
